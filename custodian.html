@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CleanCheck Crew</title>
+<meta name="theme-color" content="#0b7480">
+<link rel="manifest" href="custodian.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><div class="in">
+  <span class="role">Custodial team</span>
+  <h1>CleanCheck</h1>
+  <p class="sub">Restrooms that volunteers flagged. This board updates live, so you do not need to refresh.</p>
+</div></header>
+
+<div class="wrap">
+  <div id="banner" class="banner" hidden></div>
+  <div class="sec">
+    <h2>Needs cleaning now <span class="count" id="need-n"></span></h2>
+    <p class="note">Longest wait first. Tap Mark cleaned when you finish.</p>
+    <div id="need" class="sec"></div>
+  </div>
+  <div class="sec">
+    <h2>All restrooms</h2>
+    <div class="board" id="board"></div>
+  </div>
+  <div class="install">To install: in Chrome, open the menu and tap Add to Home screen. On iPhone, tap Share, then Add to Home Screen.</div>
+  <div class="switch">Volunteer? <a href="index.html">Open the check-in form</a></div>
+</div>
+
+<script type="module">
+import { esc, lname, tags, ago, unitStates, needList, boardHtml, CP_LABEL, DAY_SHORT, registerSW } from "./shared.js";
+import { addCleaning, onChecks, onCleanings } from "./db.js";
+
+registerSW();
+const $ = (id) => document.getElementById(id);
+let checks = [], cleanings = [];
+function setBanner(t) { const b = $("banner"); if (t) { b.textContent = t; b.hidden = false; } else b.hidden = true; }
+
+function render() {
+  const states = unitStates(checks, cleanings), list = needList(states);
+  $("need-n").textContent = list.length ? "(" + list.length + ")" : "";
+  if (!list.length) {
+    $("need").innerHTML = '<div class="empty">Nothing needs cleaning right now. New volunteer checks that find a problem will show up here.</div>';
+  } else {
+    $("need").innerHTML = list.map((u) => {
+      const c = u.check;
+      return '<div class="need"><div class="tx"><strong>' + esc(lname(u)) + "</strong>" +
+        '<span class="meta">' + esc((DAY_SHORT[c.day] || "") + " " + (CP_LABEL[c.cp] || c.cp)) + ", reported " + esc(ago(c.ts)) + "</span>" +
+        '<span class="meta">' + esc(tags(c).join(", ")) + "</span></div>" +
+        '<button class="submit sm" type="button" data-loc="' + esc(u.loc) + '" data-room="' + esc(u.room) + '">Mark cleaned</button></div>';
+    }).join("");
+  }
+  $("board").innerHTML = boardHtml(states);
+}
+
+$("need").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-loc]");
+  if (!b) return;
+  b.disabled = true;
+  const rec = { loc: b.dataset.loc, room: b.dataset.room, ts: Date.now() };
+  const p = addCleaning(rec);
+  p.catch(() => { b.disabled = false; setBanner("Could not save. Check your connection and try again."); });
+  // Show the change right away. If the phone is offline it is sent when it reconnects.
+  cleanings = [rec, ...cleanings]; render();
+});
+
+const loadErr = () => setBanner("Could not load shared data. Check your connection.");
+onChecks((rows) => { checks = rows; setBanner(""); render(); }, loadErr);
+onCleanings((rows) => { cleanings = rows; render(); }, () => {});
+setInterval(render, 60000);
+</script>
+</body>
+</html>

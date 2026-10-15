@@ -1,0 +1,15 @@
+{
+  "id": "cleancheck-volunteer",
+  "name": "CleanCheck Volunteer",
+  "short_name": "CleanCheck",
+  "description": "Log GSMST restroom conditions after each period.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#e9f0f1",
+  "theme_color": "#0b7480",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

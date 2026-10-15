@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CleanCheck</title>
+<meta name="theme-color" content="#0b7480">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><div class="in">
+  <span class="role">Volunteer</span>
+  <h1>CleanCheck</h1>
+  <p class="sub">GSMST restroom checks. Fill it in after your period or after lunch. It takes about 30 seconds.</p>
+</div></header>
+
+<div class="wrap">
+  <div id="banner" class="banner" hidden></div>
+  <div class="tabs" role="tablist">
+    <button role="tab" id="tab-check" aria-selected="true" aria-controls="panel-check">Check in</button>
+    <button role="tab" id="tab-results" aria-selected="false" aria-controls="panel-results">Results</button>
+  </div>
+
+  <form id="panel-check" role="tabpanel" aria-labelledby="tab-check" class="wrap" style="gap:12px" novalidate>
+    <fieldset class="q"><legend>Which restroom?</legend>
+      <div class="lab"><span class="hint">Location</span></div>
+      <select id="loc" name="loc"></select>
+      <div class="lab"><span class="hint">Restroom</span></div>
+      <div class="opts" id="g-room"></div>
+    </fieldset>
+    <fieldset class="q"><legend>Which schedule today?<span class="hint">Anchor, Blue or Silver day.</span></legend>
+      <div class="opts" id="g-day"></div>
+    </fieldset>
+    <fieldset class="q"><legend>When are you checking?<span class="hint">Pick the period or lunch you are checking after.</span></legend>
+      <div class="opts cp" id="g-cp"></div>
+    </fieldset>
+    <fieldset class="q"><legend>Liquid on the floor<span class="hint">Small puddle means smaller than your hand.</span></legend>
+      <div class="opts" id="g-liquid"></div>
+    </fieldset>
+    <fieldset class="q"><legend>Waste in or around the toilet<span class="hint">Anything left behind that should have been flushed or cleaned.</span></legend>
+      <div class="opts" id="g-waste"></div>
+    </fieldset>
+    <fieldset class="q"><legend>Smell the moment you step in<span class="hint">Judge it at the door, before you adjust to it.</span></legend>
+      <div class="opts" id="g-odor"></div>
+    </fieldset>
+    <fieldset class="q"><legend>Toilet paper</legend>
+      <div class="opts" id="g-paper"></div>
+    </fieldset>
+    <fieldset class="q"><legend>Soap</legend>
+      <div class="opts" id="g-soap"></div>
+    </fieldset>
+    <button type="submit" class="submit" id="submit">Submit check</button>
+    <div class="msg" id="msg" role="status" aria-live="polite"></div>
+  </form>
+
+  <section id="panel-results" role="tabpanel" aria-labelledby="tab-results" class="wrap" hidden>
+    <div class="sec">
+      <h2>Right now</h2>
+      <p class="note"><span class="livedot"></span>Updates live. Clean now means a large puddle, waste, or an issue score of 3 or more.</p>
+      <div class="board" id="board"></div>
+    </div>
+    <div class="sec">
+      <h2>Average issue score by time</h2>
+      <p class="note">Higher means more problems. Max score is 6. Sorted by time of day.</p>
+      <div id="bars"></div>
+    </div>
+    <div class="sec">
+      <h2>Recent checks</h2>
+      <div id="log"></div>
+    </div>
+    <div class="sec">
+      <button class="ghost" id="export" type="button">Download all checks as CSV</button>
+      <div class="key">Issue score: liquid (0, 1, 2) + waste + smell + paper out + soap out (1 each). Range 0 to 6. The CSV has the exact time of each check in minutes after midnight.</div>
+    </div>
+  </section>
+
+  <div class="install">To install: in Chrome, open the menu and tap Add to Home screen. On iPhone, tap Share, then Add to Home Screen.</div>
+  <div class="switch">Custodial team? <a href="custodian.html">Open the cleaning board</a></div>
+</div>
+
+<script type="module">
+import { LOCS, LOC_LABEL, ROOMS, ROOM_LABEL, DAYS, DAY_SHORT, CP_LABEL, DAY_CPS, esc, lname, score, ago, unitStates, boardHtml, registerSW } from "./shared.js";
+import { addCheck, onChecks, onCleanings } from "./db.js";
+
+registerSW();
+const $ = (id) => document.getElementById(id);
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+let checks = [], cleanings = [];
+
+function group(id, name, opts) {
+  $(id).innerHTML = opts.map((o) =>
+    '<label class="opt ' + (o[2] || "") + '"><input type="radio" name="' + name + '" value="' + o[0] + '"><span>' + esc(o[1]) + "</span></label>").join("");
+}
+const val = (n) => { const el = document.querySelector('input[name="' + n + '"]:checked'); return el ? el.value : null; };
+const setVal = (n, v) => { const el = document.querySelector('input[name="' + n + '"][value="' + v + '"]'); if (el) el.checked = true; };
+
+$("loc").innerHTML = LOCS.map((l) => '<option value="' + l[0] + '">' + esc(l[1]) + "</option>").join("");
+group("g-room", "room", ROOMS);
+group("g-day", "day", DAYS);
+group("g-liquid", "liquid", [["0", "None", "ok"], ["1", "Small puddle", "bad"], ["2", "Large or spreading", "bad"]]);
+group("g-waste", "waste", [["0", "No", "ok"], ["1", "Yes", "bad"]]);
+group("g-odor", "odor", [["0", "No smell", "ok"], ["1", "Smell at the door", "bad"]]);
+group("g-paper", "paper", [["0", "Available", "ok"], ["1", "Out", "bad"]]);
+group("g-soap", "soap", [["0", "Available", "ok"], ["1", "Out", "bad"]]);
+
+function drawCps() {
+  const d = val("day"), prev = val("cp");
+  if (!d || !DAY_CPS[d]) { $("g-cp").innerHTML = '<div class="hint">Pick today\'s schedule first.</div>'; return; }
+  group("g-cp", "cp", DAY_CPS[d]);
+  if (prev) setVal("cp", prev);
+}
+$("g-day").addEventListener("change", () => { lsSet("cc_day", val("day")); drawCps(); });
+
+const sl = lsGet("cc_loc"); if (sl && LOC_LABEL[sl]) $("loc").value = sl;
+const sday = lsGet("cc_day"); if (sday && DAY_CPS[sday]) setVal("day", sday);
+drawCps();
+const sroom = lsGet("cc_room"); if (sroom) setVal("room", sroom);
+
+function setBanner(t) { const b = $("banner"); if (t) { b.textContent = t; b.hidden = false; } else b.hidden = true; }
+function setMsg(t, cls) { const m = $("msg"); m.textContent = t; m.className = "msg" + (cls ? " " + cls : ""); }
+
+// ----- results -----
+function renderBars() {
+  const by = {}, mins = {};
+  checks.forEach((c) => {
+    const k = (c.day || "") + "|" + c.cp;
+    (by[k] = by[k] || []).push(score(c)); (mins[k] = mins[k] || []).push(c.min || 0);
+  });
+  const rows = Object.keys(by).map((k) => {
+    const p = k.split("|"), m = mins[k];
+    return [k, (p[0] ? (DAY_SHORT[p[0]] || p[0]) + " " : "") + (CP_LABEL[p[1]] || p[1]), m.reduce((a, b) => a + b, 0) / m.length];
+  }).sort((a, b) => a[2] - b[2]);
+  if (!rows.length) { $("bars").innerHTML = '<div class="empty">No checks yet. Submit the first one on the Check in tab and the pattern by time of day will start to show here.</div>'; return; }
+  let h = '<div class="bars">';
+  rows.forEach((c) => {
+    const arr = by[c[0]], avg = arr.reduce((a, b) => a + b, 0) / arr.length;
+    h += '<div class="bar"><span class="l">' + esc(c[1]) + '</span><div class="track"><div class="fill" style="width:' + (avg / 6 * 100).toFixed(1) + '%"></div></div><span class="v">' + avg.toFixed(1) + " <small>n=" + arr.length + "</small></span></div>";
+  });
+  h += '<div class="axis"><span></span><div><span>0</span><span>2</span><span>4</span><span>6</span></div><span></span></div></div>';
+  $("bars").innerHTML = h;
+}
+function renderLog() {
+  if (!checks.length) { $("log").innerHTML = '<div class="empty">Nothing here yet. Each submitted check will appear in this list with its score.</div>'; return; }
+  let h = '<div class="logwrap"><table><thead><tr><th>Time</th><th>Where</th><th>When</th><th>Score</th></tr></thead><tbody>';
+  checks.slice(0, 15).forEach((c) => {
+    const d = new Date(c.ts);
+    h += "<tr><td>" + esc(d.toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })) + "</td><td>" + esc(lname(c)) + "</td><td>" + esc((DAY_SHORT[c.day] || "") + " " + (CP_LABEL[c.cp] || c.cp)) + '</td><td class="sc">' + score(c) + " / 6</td></tr>";
+  });
+  $("log").innerHTML = h + "</tbody></table></div>";
+}
+function renderResults() {
+  $("board").innerHTML = boardHtml(unitStates(checks, cleanings));
+  renderBars(); renderLog();
+}
+
+function showTab(which) {
+  const c = which === "check";
+  $("tab-check").setAttribute("aria-selected", c);
+  $("tab-results").setAttribute("aria-selected", !c);
+  $("panel-check").hidden = !c;
+  $("panel-results").hidden = c;
+  if (!c) renderResults();
+}
+$("tab-check").addEventListener("click", () => showTab("check"));
+$("tab-results").addEventListener("click", () => showTab("results"));
+
+// ----- submit -----
+let busy = false;
+$("panel-check").addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (busy) return;
+  const rec = { loc: $("loc").value }, missing = [];
+  ["day", "room", "cp", "liquid", "waste", "odor", "paper", "soap"].forEach((n) => { const v = val(n); if (v === null) missing.push(n); rec[n] = v; });
+  if (missing.length) { setMsg("Answer every question first. Still missing: " + missing.join(", ") + ".", "err"); return; }
+  const now = new Date();
+  rec.ts = now.getTime();
+  rec.min = now.getHours() * 60 + now.getMinutes();
+  ["liquid", "waste", "odor", "paper", "soap"].forEach((n) => { rec[n] = +rec[n]; });
+  rec.score = score(rec);
+  lsSet("cc_loc", rec.loc); lsSet("cc_room", rec.room); lsSet("cc_day", rec.day);
+  busy = true; $("submit").disabled = true; setMsg("Sending...", "");
+  const done = (ok, text) => {
+    busy = false; $("submit").disabled = false; setMsg(text, ok ? "ok" : "err");
+    if (ok) ["cp", "liquid", "waste", "odor", "paper", "soap"].forEach((n) => { const el = document.querySelector('input[name="' + n + '"]:checked'); if (el) el.checked = false; });
+  };
+  const p = addCheck(rec).then(() => "ok");
+  p.catch(() => {});
+  const slow = new Promise((r) => setTimeout(() => r("slow"), 6000));
+  Promise.race([p, slow]).then(
+    (res) => done(true, res === "ok" ? "Submitted. Thank you!" : "Saved on this phone. It will send when you are back online."),
+    () => done(false, "Could not send. Check your connection and try again.")
+  );
+});
+
+// ----- CSV export -----
+const csvCell = (v) => { const s = String(v == null ? "" : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+$("export").addEventListener("click", () => {
+  if (!checks.length) { setBanner("There are no checks to export yet."); return; }
+  const lines = [["time_iso", "minutes_after_midnight", "day", "location", "restroom", "checkpoint", "liquid_0_2", "waste", "smell", "paper_out", "soap_out", "issue_score"].join(",")];
+  checks.slice().sort((a, b) => a.ts - b.ts).forEach((c) => {
+    lines.push([new Date(c.ts).toISOString(), c.min, c.day || "", LOC_LABEL[c.loc] || c.loc, ROOM_LABEL[c.room] || c.room, c.cp, c.liquid, c.waste, c.odor, c.paper, c.soap, score(c)].map(csvCell).join(","));
+  });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" }));
+  a.download = "cleancheck-data.csv";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  setBanner("");
+});
+
+// ----- live data -----
+const loadErr = () => setBanner("Could not load shared results. Check your connection. You can still submit checks.");
+onChecks((rows) => { checks = rows; setBanner(""); if (!$("panel-results").hidden) renderResults(); }, loadErr);
+onCleanings((rows) => { cleanings = rows; if (!$("panel-results").hidden) renderResults(); }, () => {});
+setInterval(() => { if (!$("panel-results").hidden) renderResults(); }, 60000);
+</script>
+</body>
+</html>
